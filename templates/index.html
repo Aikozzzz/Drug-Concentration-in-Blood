@@ -6,6 +6,7 @@
     <title>Drug Concentration in Blood</title>
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
     <style>
         @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap");
 
@@ -154,9 +155,109 @@
         .right-pane .empty-card {
             flex: 1 1 auto;
         }
+
+        .chat-log {
+            max-height: 230px;
+            overflow-y: auto;
+            border: 1px solid var(--panel-edge);
+            border-radius: 12px;
+            background: #ffffff;
+            padding: 10px;
+        }
+
+        .chat-line {
+            margin-bottom: 8px;
+            font-size: 0.92rem;
+        }
+
+        .chat-user {
+            color: var(--brand-1);
+            font-weight: 700;
+        }
+
+        .chat-assistant {
+            color: var(--ink);
+            font-weight: 700;
+        }
+
+        .chat-toggle-btn {
+            position: fixed;
+            top: 18px;
+            right: 18px;
+            width: 52px;
+            height: 52px;
+            border-radius: 999px;
+            border: none;
+            z-index: 1100;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #ffffff;
+            background: linear-gradient(120deg, var(--brand-1), #3b8f8c);
+            box-shadow: 0 10px 20px var(--glow);
+        }
+
+        .chat-panel {
+            position: fixed;
+            top: 78px;
+            right: 18px;
+            width: min(360px, calc(100vw - 36px));
+            z-index: 1100;
+            display: none;
+            border-radius: 18px;
+            border: 1px solid var(--panel-edge);
+            box-shadow: 0 12px 24px rgba(20, 28, 46, 0.12);
+            background: #ffffff;
+        }
+
+        .chat-panel.open {
+            display: block;
+        }
+
+        .chat-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .chat-close-btn {
+            border: none;
+            background: transparent;
+            font-size: 1.25rem;
+            line-height: 1;
+            color: var(--muted);
+        }
     </style>
 </head>
 <body>
+<button id="chatToggleBtn" class="chat-toggle-btn" type="button" aria-label="Open assistant chat">💬</button>
+
+<div id="chatPanel" class="chat-panel">
+    <div class="card border-0">
+        <div class="card-body">
+            <div class="chat-panel-header mb-2">
+                <h6 class="mb-0">Virtual Assistant</h6>
+                <button id="chatCloseBtn" class="chat-close-btn" type="button" aria-label="Close assistant chat">×</button>
+            </div>
+            <div id="chatLog" class="chat-log mb-2">
+                <div class="chat-line"><span class="chat-assistant">Assistant:</span> Ask me about your graph, status, dose, interval, ka/ke, or Vd.</div>
+            </div>
+            <form id="chatForm" class="d-flex gap-2">
+                <select id="chatQuestion" class="form-select">
+                    <option value="">Choose a question...</option>
+                    <option value="status">What is my current status?</option>
+                    <option value="dose_adjust">How should I adjust dose?</option>
+                    <option value="interval_effect">How does interval affect concentration?</option>
+                    <option value="ka_meaning">What does ka mean in this model?</option>
+                    <option value="ke_meaning">What does ke mean in this model?</option>
+                    <option value="vd_meaning">What does Vd mean in this model?</option>
+                    <option value="oral_vs_iv">Explain oral vs IV curve.</option>
+                </select>
+                <button class="btn btn-primary" type="submit">Ask</button>
+            </form>
+        </div>
+    </div>
+</div>
+
 <div class="container py-4 py-md-5">
     <div class="card main-card p-3 p-md-4">
         <h2 class="mb-4 text-center">Drug Concentration in Blood</h2>
@@ -243,7 +344,10 @@
                 <div class="card border-0 shadow-sm mb-3 plot-card">
                     <div class="card-body">
                         <h5 class="mb-3">Pharmacokinetic plot</h5>
-                        <img src="data:image/png;base64,{{ plot_url }}" class="img-fluid rounded border" alt="Simulation plot">
+                        <div id="interactivePlot" class="rounded border" style="height: 420px;"></div>
+                        <noscript>
+                            <img src="data:image/png;base64,{{ plot_url }}" class="img-fluid rounded border mt-2" alt="Simulation plot">
+                        </noscript>
 
                         <div class="row mt-3 g-3">
                             <div class="col-md-6">
@@ -285,6 +389,7 @@
                     </div>
                 </div>
                 {% endif %}
+
             </div>
         </div>
     </div>
@@ -292,9 +397,72 @@
 
 <script>
 const drugDb = {{ drugs_json|safe }};
+const plotPayload = {{ plot_payload|tojson }};
 const drugSelect = document.getElementById("drugSelect");
 const VdInput = document.getElementById("Vd");
 const isPost = {{ 'true' if request.method == 'POST' else 'false' }};
+const currentStatus = {{ status|tojson }};
+
+function renderInteractivePlot() {
+    if (!plotPayload) return;
+    const plotEl = document.getElementById("interactivePlot");
+    if (!plotEl || typeof Plotly === "undefined") return;
+
+    const xStart = plotPayload.t[0];
+    const xEnd = plotPayload.t[plotPayload.t.length - 1];
+
+    const oralTrace = {
+        x: plotPayload.t,
+        y: plotPayload.y_oral,
+        mode: "lines",
+        name: "Oral doses",
+        line: { width: 2 },
+        customdata: plotPayload.oral_explanations,
+        hovertemplate: "Time: %{x:.2f} h<br>Concentration: %{y:.2f} mg/L<br>%{customdata}<extra>Oral</extra>",
+    };
+
+    const ivTrace = {
+        x: plotPayload.t,
+        y: plotPayload.y_iv,
+        mode: "lines",
+        name: "Continuous IV",
+        line: { width: 2, dash: "dash" },
+        customdata: plotPayload.iv_explanations,
+        hovertemplate: "Time: %{x:.2f} h<br>Concentration: %{y:.2f} mg/L<br>%{customdata}<extra>IV</extra>",
+    };
+
+    const toxicLine = {
+        x: [xStart, xEnd],
+        y: [plotPayload.toxic, plotPayload.toxic],
+        mode: "lines",
+        name: "Toxic",
+        line: { dash: "dot", width: 1.5 },
+        hovertemplate: "Toxic threshold: %{y:.2f} mg/L<extra></extra>",
+    };
+
+    const minEffLine = {
+        x: [xStart, xEnd],
+        y: [plotPayload.min_eff, plotPayload.min_eff],
+        mode: "lines",
+        name: "Min Effective",
+        line: { dash: "dot", width: 1.5 },
+        hovertemplate: "Minimum effective: %{y:.2f} mg/L<extra></extra>",
+    };
+
+    const layout = {
+        title: "Pharmacokinetics - " + plotPayload.name,
+        xaxis: { title: "Time (hours)" },
+        yaxis: { title: "Plasma Concentration (mg/L)" },
+        margin: { l: 60, r: 20, t: 45, b: 55 },
+        hovermode: "x unified",
+        showlegend: true,
+    };
+
+    Plotly.newPlot(plotEl, [oralTrace, ivTrace, toxicLine, minEffLine], layout, {
+        responsive: true,
+        displaylogo: false,
+    });
+}
 
 function applyVdLock(drugName) {
     if (!VdInput) return;
@@ -364,7 +532,114 @@ window.onload = function() {
         }
     }
     updateDelayFields();
+    renderInteractivePlot();
 };
+
+const chatForm = document.getElementById("chatForm");
+const chatQuestion = document.getElementById("chatQuestion");
+const chatLog = document.getElementById("chatLog");
+const chatToggleBtn = document.getElementById("chatToggleBtn");
+const chatCloseBtn = document.getElementById("chatCloseBtn");
+const chatPanel = document.getElementById("chatPanel");
+
+function openChatPanel() {
+    if (!chatPanel) return;
+    chatPanel.classList.add("open");
+    if (chatQuestion) chatQuestion.focus();
+}
+
+function closeChatPanel() {
+    if (!chatPanel) return;
+    chatPanel.classList.remove("open");
+}
+
+if (chatToggleBtn) {
+    chatToggleBtn.addEventListener("click", function() {
+        if (!chatPanel) return;
+        if (chatPanel.classList.contains("open")) {
+            closeChatPanel();
+        } else {
+            openChatPanel();
+        }
+    });
+}
+
+if (chatCloseBtn) {
+    chatCloseBtn.addEventListener("click", closeChatPanel);
+}
+
+function appendChatLine(role, text) {
+    if (!chatLog) return;
+    const line = document.createElement("div");
+    line.className = "chat-line";
+
+    const label = document.createElement("span");
+    label.className = role === "user" ? "chat-user" : "chat-assistant";
+    label.textContent = role === "user" ? "You:" : "Assistant:";
+
+    line.appendChild(label);
+    line.appendChild(document.createTextNode(" " + text));
+    chatLog.appendChild(line);
+    chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function getChatContext() {
+    const getValue = (selector) => {
+        const el = document.querySelector(selector);
+        return el ? el.value : null;
+    };
+
+    return {
+        drug: drugSelect ? drugSelect.value : null,
+        status: currentStatus,
+        dose: getValue('[name="dose"]'),
+        doses_per_day: getValue('[name="doses_per_day"]'),
+        interval: getValue('[name="interval"]'),
+        ka: getValue('[name="ka"]'),
+        ke: getValue('[name="ke"]'),
+        Vd: getValue('[name="Vd"]'),
+        toxic: getValue('[name="toxic"]'),
+        min_eff: getValue('[name="min_eff"]')
+    };
+}
+
+async function sendChatMessage(intent, message) {
+    const response = await fetch('/assistant-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            intent,
+            message,
+            context: getChatContext()
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error('Chat request failed');
+    }
+
+    const data = await response.json();
+    return data.reply || 'I could not generate a reply.';
+}
+
+if (chatForm && chatQuestion) {
+    chatForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const intent = chatQuestion.value.trim();
+        if (!intent) return;
+        const message = chatQuestion.options[chatQuestion.selectedIndex].text;
+
+        appendChatLine('user', message);
+        chatQuestion.value = '';
+
+        try {
+            const reply = await sendChatMessage(intent, message);
+            appendChatLine('assistant', reply);
+        } catch (error) {
+            appendChatLine('assistant', 'Unable to respond right now. Please try again.');
+        }
+    });
+}
 </script>
 </body>
 </html>

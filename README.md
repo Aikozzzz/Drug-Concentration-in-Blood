@@ -5,9 +5,13 @@ A lightweight Flask web app that simulates and visualizes drug concentration in 
 ## Features
 
 - Simulates oral dosing and continuous IV infusion curves
+- Interactive hover-enabled graph with per-point explanation (below effective / therapeutic / toxic)
 - Supports preset drugs and custom parameter entry
 - Displays therapeutic window, peak concentration, and safety status
 - Includes interpretation messages for toxic/subtherapeutic/valid dosing
+- Includes a built-in virtual assistant chat for explaining graph behavior and parameter effects
+- Chat opens from a top-right icon and can be closed again
+- Rule-based assistant uses predefined question choices (no free-text typing)
 
 ## Project Structure
 
@@ -50,7 +54,21 @@ Open in browser:
 
 `http://127.0.0.1:5000`
 
+## Virtual Assistant Chat
+
+- Click the top-right chat icon (💬) to open the assistant panel.
+- Choose a predefined question and click **Ask**.
+- Supported topics include status, dose adjustment, interval effect, `ka`, `ke`, `Vd`, and oral vs IV interpretation.
+- The assistant uses current simulation context (including status) for responses.
+
+## Interactive Graph
+
+- The main pharmacokinetic chart is interactive.
+- Hover over oral/IV curve points to see time, concentration, and zone explanation.
+- Threshold lines for toxic and minimum effective levels are also hoverable.
+
 ## Notes
 
 - Matplotlib is configured to use a non-GUI backend (`Agg`) so plotting works safely in Flask request threads.
+- Plotly is loaded in the browser via CDN for interactive chart rendering.
 - This is a development server setup; use a production WSGI server for deployment.

@@ -2,3 +2,4 @@ Flask==3.1.2
 numpy==2.4.2
 matplotlib==3.10.8
 scipy==1.17.1
+# Plotly is loaded via CDN in templates/index.html (no Python package required)

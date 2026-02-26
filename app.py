@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import io
 import base64
 import json
+import re
 from scipy import signal
 
 app = Flask(__name__)
@@ -124,6 +125,78 @@ def validate_params(params):
         errors.append("Dose delays cannot be negative.")
 
     return errors
+
+
+def build_assistant_reply(message, context, intent=None):
+    text = (message or "").strip().lower()
+    status = str(context.get("status") or "").upper()
+    tokens = set(re.findall(r"[a-zA-Z0-9_]+", text))
+
+    if intent == "status":
+        if status == "TOXIC":
+            return "Your current status is TOXIC. Consider reducing dose, increasing interval, or both to lower peak concentration."
+        if status == "SUBTHERAPEUTIC":
+            return "Your current status is SUBTHERAPEUTIC. Consider increasing dose or shortening interval to reach effective levels."
+        if status == "SAFE":
+            return "Your current status is SAFE based on current thresholds. You can still check trough behavior if dose timing changes."
+        if status == "INVALID INPUT":
+            return "Inputs are invalid. Please fix highlighted issues first (for example non-positive dose, interval, or Vd)."
+        return "Run a simulation first, then ask about status and I will interpret it for you."
+
+    if intent == "dose_adjust":
+        return "Higher dose or more frequent dosing increases concentration and peak risk. Lowering either usually reduces toxicity risk."
+
+    if intent == "interval_effect":
+        return "Longer intervals usually reduce accumulation but can cause subtherapeutic dips. Shorter intervals increase stability but may raise toxicity risk."
+
+    if intent == "ka_meaning":
+        return "Higher ka means faster absorption and earlier/higher peaks. Lower ka smooths and delays peak concentration."
+
+    if intent == "ke_meaning":
+        return "Higher ke means faster elimination, lower accumulation, and lower troughs. Lower ke increases drug persistence."
+
+    if intent == "vd_meaning":
+        return "Larger Vd generally lowers plasma concentration for the same dose, while smaller Vd raises concentration."
+
+    if intent == "oral_vs_iv":
+        return "The dashed IV curve represents continuous infusion, while the oral curve shows pulse-like dose events with absorption and elimination dynamics."
+
+    if not text:
+        return "Please type a question about dosing, toxicity, or the graph."
+
+    if text in {"hello", "hi", "hey"}:
+        return "Hi! I can help explain your graph, status, dose interval, and therapeutic window."
+
+    if "status" in text or "safe" in text or "toxic" in text or "subtherapeutic" in text:
+        if status == "TOXIC":
+            return "Your current status is TOXIC. Consider reducing dose, increasing interval, or both to lower peak concentration."
+        if status == "SUBTHERAPEUTIC":
+            return "Your current status is SUBTHERAPEUTIC. Consider increasing dose or shortening interval to reach effective levels."
+        if status == "SAFE":
+            return "Your current status is SAFE based on current thresholds. You can still check trough behavior if dose timing changes."
+        if status == "INVALID INPUT":
+            return "Inputs are invalid. Please fix highlighted issues first (for example non-positive dose, interval, or Vd)."
+        return "Run a simulation first, then ask about status and I will interpret it for you."
+
+    if "interval" in text or "timing" in text or "delay" in text:
+        return "Longer intervals usually reduce accumulation but can cause subtherapeutic dips. Shorter intervals increase stability but may raise toxicity risk."
+
+    if "dose" in text or "doses/day" in text or "doses per day" in text:
+        return "Higher dose or more frequent dosing increases concentration and peak risk. Lowering either usually reduces toxicity risk."
+
+    if "ka" in tokens or "absorption" in tokens:
+        return "Higher ka means faster absorption and earlier/higher peaks. Lower ka smooths and delays peak concentration."
+
+    if "ke" in tokens or "elimination" in tokens:
+        return "Higher ke means faster elimination, lower accumulation, and lower troughs. Lower ke increases drug persistence."
+
+    if "vd" in tokens:
+        return "Larger Vd generally lowers plasma concentration for the same dose, while smaller Vd raises concentration."
+
+    if "iv" in text:
+        return "The dashed IV curve represents continuous infusion, while the oral curve shows pulse-like dose events with absorption and elimination dynamics."
+
+    return "I can explain status, dose interval, ka/ke/Vd effects, toxicity risk, and how to adjust schedule parameters."
 
 
 def generate_plot(params):
@@ -256,8 +329,29 @@ def generate_plot(params):
         messages.append(
             "✔ Drug concentration remains within the therapeutic window. Current dosing appears appropriate."
         )
-    
-    return plot_url, status, round(max_conc, 2), messages
+
+    def point_explanation(concentration):
+        if concentration > toxic_scaled:
+            return "Above toxic threshold"
+        if concentration < min_eff_scaled:
+            return "Below minimum effective level"
+        return "Within therapeutic window"
+
+    oral_explanations = [point_explanation(float(v)) for v in y_pill]
+    iv_explanations = [point_explanation(float(v)) for v in y_iv]
+
+    plot_payload = {
+        "name": params["name"],
+        "t": [float(v) for v in t],
+        "y_oral": [float(v) for v in y_pill],
+        "y_iv": [float(v) for v in y_iv],
+        "toxic": float(toxic_scaled),
+        "min_eff": float(min_eff_scaled),
+        "oral_explanations": oral_explanations,
+        "iv_explanations": iv_explanations,
+    }
+
+    return plot_url, status, round(max_conc, 2), messages, plot_payload
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -279,6 +373,7 @@ def index():
     }
 
     plot_url = None
+    plot_payload = None
     status = None
     max_c = None
     messages = None
@@ -311,13 +406,15 @@ def index():
             status = "INVALID INPUT"
             messages = [f"⚠ {error}" for error in input_errors]
             plot_url = None
+            plot_payload = None
             max_c = None
         else:
-            plot_url, status, max_c, messages = generate_plot(p)
+            plot_url, status, max_c, messages, plot_payload = generate_plot(p)
 
     return render_template(
         "index.html",
         plot_url=plot_url,
+        plot_payload=plot_payload,
         status=status,
         max_c=max_c,
         messages=messages,
@@ -326,6 +423,19 @@ def index():
         form_values=form_values,
         drugs_json=json.dumps(DRUG_DB)
     )
+
+
+@app.route("/assistant-chat", methods=["POST"])
+def assistant_chat():
+    data = request.get_json(silent=True) or {}
+    message = str(data.get("message", ""))
+    intent = str(data.get("intent", "")).strip().lower() or None
+    context = data.get("context", {})
+    if not isinstance(context, dict):
+        context = {}
+
+    reply = build_assistant_reply(message, context, intent=intent)
+    return jsonify({"reply": reply})
 
 
 if __name__ == "__main__":
