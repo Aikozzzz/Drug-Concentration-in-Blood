@@ -1,5 +1,7 @@
 from flask import Flask, render_template, request
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import io
 import base64
@@ -97,7 +99,38 @@ def parse_float(form, key, default):
         return float(default)
 
 
+def validate_params(params):
+    errors = []
+
+    if params["ka"] <= 0:
+        errors.append("ka must be greater than 0.")
+    if params["ke"] <= 0:
+        errors.append("ke must be greater than 0.")
+    if params["Vd"] <= 0:
+        errors.append("Vd must be greater than 0.")
+    if params["dose"] <= 0:
+        errors.append("Dose must be greater than 0.")
+    if params["doses_per_day"] < 1:
+        errors.append("Doses/day must be at least 1.")
+    if params["interval"] <= 0:
+        errors.append("Interval must be greater than 0.")
+    if params["toxic"] <= 0:
+        errors.append("Toxic limit must be greater than 0.")
+    if params["min_eff"] < 0:
+        errors.append("Minimum effective concentration cannot be negative.")
+    if params["toxic"] <= params["min_eff"]:
+        errors.append("Toxic limit must be greater than minimum effective concentration.")
+    if params["delay2"] < 0 or params["delay3"] < 0:
+        errors.append("Dose delays cannot be negative.")
+
+    return errors
+
+
 def generate_plot(params):
+    validation_errors = validate_params(params)
+    if validation_errors:
+        raise ValueError("; ".join(validation_errors))
+
     t = np.linspace(0, SIM_TIME, 1000)
     dt = t[1] - t[0]
     scale = params.get("scale", 1)
@@ -118,16 +151,14 @@ def generate_plot(params):
     doses_per_day = int(params["doses_per_day"])
     interval = params["interval"]
 
-    dose_times = [0]
-
-    if doses_per_day >= 2:
-        dose_times.append(interval + params["delay2"])
-
-    if doses_per_day >= 3:
-        dose_times.append(2 * interval + params["delay3"])
-
-    if doses_per_day == 4:
-        dose_times.append(3 * interval)
+    dose_times = []
+    for i in range(doses_per_day):
+        time_point = i * interval
+        if i == 1:
+            time_point += params["delay2"]
+        elif i == 2:
+            time_point += params["delay3"]
+        dose_times.append(time_point)
 
     # Impulse train
     u_pill = np.zeros_like(t)
@@ -253,7 +284,9 @@ def index():
     messages = None
 
     if request.method == "POST":
-        selected_drug = request.form.get("drug_select")
+        selected_drug = request.form.get("drug_select", "Theophylline")
+        if selected_drug not in DRUG_DB:
+            selected_drug = "Theophylline"
         base = DRUG_DB[selected_drug]
 
         p = {
@@ -273,7 +306,14 @@ def index():
         }
 
         form_values = p
-        plot_url, status, max_c, messages = generate_plot(p)
+        input_errors = validate_params(p)
+        if input_errors:
+            status = "INVALID INPUT"
+            messages = [f"⚠ {error}" for error in input_errors]
+            plot_url = None
+            max_c = None
+        else:
+            plot_url, status, max_c, messages = generate_plot(p)
 
     return render_template(
         "index.html",

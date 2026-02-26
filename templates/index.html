@@ -314,12 +314,15 @@ function populateFormFields(drugName) {
     document.getElementById("ka").value = data.ka;
     document.getElementById("ke").value = data.ke;
     document.getElementById("dose").value = data.dose;
+    const dosesField = document.querySelector('[name="doses_per_day"]');
+    if (dosesField) dosesField.value = data.doses_per_day;
     document.getElementById("interval").value = data.interval;
     document.getElementById("toxic").value = data.toxic;
     document.getElementById("min_eff").value = data.min_eff;
     document.getElementById("Vd").value = data.Vd;
 
     applyVdLock(drugName);
+    updateDelayFields();
 }
 
 if (drugSelect) {
