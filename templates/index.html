@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drug Concentration in Blood</title>
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap");
+
+        :root {
+            --ink: #1f2933;
+            --muted: #5f6b7a;
+            --bg-1: #f6f2e8;
+            --bg-2: #e7f2ef;
+            --brand-1: #2f6f6d;
+            --brand-2: #d08b4b;
+            --panel: #ffffff;
+            --panel-edge: rgba(15, 23, 42, 0.12);
+            --glow: rgba(47, 111, 109, 0.18);
+        }
+
+        body {
+            font-family: "Manrope", system-ui, sans-serif;
+            color: var(--ink);
+            background: radial-gradient(circle at 15% 20%, rgba(208, 139, 75, 0.18), transparent 55%),
+                        radial-gradient(circle at 85% 25%, rgba(47, 111, 109, 0.2), transparent 52%),
+                        linear-gradient(135deg, var(--bg-1), var(--bg-2));
+            min-height: 100vh;
+        }
+
+        h2, h5, h6 {
+            font-family: "Playfair Display", "Times New Roman", serif;
+            color: var(--ink);
+        }
+
+        .main-card {
+            border-radius: 22px;
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 18px 50px rgba(20, 28, 46, 0.12);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(244, 248, 247, 0.85));
+            backdrop-filter: blur(6px);
+        }
+
+        .form-card {
+            border-radius: 18px;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            background: var(--panel);
+            box-shadow: 0 12px 28px rgba(20, 28, 46, 0.08);
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-control, .form-select {
+            border-radius: 12px;
+            border-color: rgba(15, 23, 42, 0.12);
+            background: #fbfbf8;
+        }
+
+        .form-control:focus, .form-select:focus {
+            border-color: var(--brand-1);
+            box-shadow: 0 0 0 0.15rem rgba(47, 111, 109, 0.18);
+        }
+
+        .form-label {
+            font-weight: 600;
+            margin-bottom: 2px;
+            font-size: 0.82rem;
+            color: var(--muted);
+        }
+
+        .section-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--brand-1);
+            font-weight: 700;
+        }
+
+        .status-box {
+            font-size: 1rem;
+            padding: 14px;
+            border-radius: 14px;
+            background: #ffffff;
+        }
+
+        .status-safe {
+            border-color: #2b9a66 !important;
+            background: #e8f7ef;
+            color: #1f7a4e;
+        }
+
+        .status-toxic {
+            border-color: #d64545 !important;
+            background: #fde8e8;
+            color: #b23030;
+        }
+
+        .status-sub {
+            border-color: #d08b4b !important;
+            background: #fff3e4;
+            color: #a86835;
+        }
+
+        .btn-primary {
+            border-radius: 999px;
+            font-weight: 700;
+            padding: 0.65rem 1rem;
+            background: linear-gradient(120deg, var(--brand-1), #3b8f8c);
+            border: none;
+            letter-spacing: 0.02em;
+            box-shadow: 0 10px 20px var(--glow);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(120deg, #255a58, var(--brand-1));
+        }
+
+        .btn-primary:active {
+            transform: translateY(1px);
+        }
+
+        .plot-card,
+        .empty-card,
+        .interpret-card {
+            border-radius: 18px;
+            border: 1px solid var(--panel-edge);
+            box-shadow: 0 12px 24px rgba(20, 28, 46, 0.08);
+        }
+
+        .plot-card,
+        .empty-card {
+            flex: 1 1 auto;
+        }
+
+        .equal-height {
+            align-items: stretch;
+        }
+
+        .left-pane,
+        .right-pane {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .left-pane .form-card {
+            flex: 1 1 auto;
+        }
+
+        .right-pane .plot-card,
+        .right-pane .empty-card {
+            flex: 1 1 auto;
+        }
+    </style>
+</head>
+<body>
+<div class="container py-4 py-md-5">
+    <div class="card main-card p-3 p-md-4">
+        <h2 class="mb-4 text-center">Drug Concentration in Blood</h2>
+
+        <div class="row g-4 equal-height">
+            <!-- Left: form -->
+            <div class="col-md-4 left-pane">
+                <form method="POST" id="doseForm" class="form-card p-3">
+                    <div class="mb-3">
+                        <div class="section-title mb-1">Drug</div>
+                        <select name="drug_select" id="drugSelect" class="form-select">
+                            {% for drug in drugs %}
+                            <option value="{{ drug }}" {% if drug == selected %}selected{% endif %}>
+                                {{ drug }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mt-3 mb-2 section-title">Drug parameters</div>
+                    <div class="row g-2">
+                        <div class="col-4">
+                            <label class="form-label">ka (h⁻¹)</label>
+                            <input type="number" step="0.01" name="ka" id="ka" value="{{ form_values.ka }}" class="form-control">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">ke (h⁻¹)</label>
+                            <input type="number" step="0.01" name="ke" id="ke" value="{{ form_values.ke }}" class="form-control">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Vd (L)</label>
+                            <input type="number" step="1" name="Vd" id="Vd" value="{{ form_values.Vd }}" class="form-control">
+                        </div>
+                    </div>
+
+                    <div class="mt-3 mb-2 section-title">Dosing schedule</div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-4">
+                            <label class="form-label">Dose (mg)</label>
+                            <input type="number" step="0.1" name="dose" id="dose" value="{{ form_values.dose }}" class="form-control">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Doses/day</label>
+                            <input type="number" name="doses_per_day" value="{{ form_values.doses_per_day }}" class="form-control">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Interval (h)</label>
+                            <input type="number" step="0.5" name="interval" id="interval" value="{{ form_values.interval }}" class="form-control">
+                        </div>
+                    </div>
+
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label">Delay 2nd dose (h)</label>
+                            <input type="number" step="0.5" name="delay2" value="{{ form_values.delay2 }}" class="form-control">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Delay 3rd dose (h)</label>
+                            <input type="number" step="0.5" name="delay3" value="{{ form_values.delay3 }}" class="form-control">
+                        </div>
+                    </div>
+
+                    <div class="mt-3 mb-2 section-title">Therapeutic window</div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label">Toxic limit</label>
+                            <input type="number" step="0.1" name="toxic" id="toxic" value="{{ form_values.toxic }}" class="form-control">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Minimum effective</label>
+                            <input type="number" step="0.1" name="min_eff" id="min_eff" value="{{ form_values.min_eff }}" class="form-control">
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100 mt-3">
+                        Simulate
+                    </button>
+                </form>
+            </div>
+
+            <!-- Right: plot and results -->
+            <div class="col-md-8 right-pane">
+                {% if plot_url %}
+                <div class="card border-0 shadow-sm mb-3 plot-card">
+                    <div class="card-body">
+                        <h5 class="mb-3">Pharmacokinetic plot</h5>
+                        <img src="data:image/png;base64,{{ plot_url }}" class="img-fluid rounded border" alt="Simulation plot">
+
+                        <div class="row mt-3 g-3">
+                            <div class="col-md-6">
+                                <div class="status-box border
+                                    {% if status == 'SAFE' %}status-safe
+                                    {% elif status == 'TOXIC' %}status-toxic
+                                    {% else %}status-sub{% endif %}">
+                                    <div class="small text-uppercase text-muted mb-1">System status</div>
+                                    <div class="fw-semibold">{{ status }}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="status-box border bg-white">
+                                    <div class="small text-uppercase text-muted mb-1">Peak concentration</div>
+                                    <div class="fw-semibold">{{ max_c }} <small class="text-muted">mg/L or ng/mL</small></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="card border-0 shadow-sm h-100 empty-card">
+                    <div class="card-body d-flex flex-column justify-content-center text-center text-muted" style="min-height: 280px;">
+                        <div class="display-6 mb-2">PK</div>
+                        <p class="mb-1">Select a drug and parameters on the left, then run the simulation.</p>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if messages %}
+                <div class="card border-0 shadow-sm mt-3 interpret-card">
+                    <div class="card-body">
+                        <h6 class="mb-2">Interpretation</h6>
+                        <ul class="mb-0">
+                            {% for msg in messages %}
+                            <li class="mb-1">{{ msg }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const drugDb = {{ drugs_json|safe }};
+const drugSelect = document.getElementById("drugSelect");
+const VdInput = document.getElementById("Vd");
+const isPost = {{ 'true' if request.method == 'POST' else 'false' }};
+
+function applyVdLock(drugName) {
+    if (!VdInput) return;
+    if (drugName === "Custom") {
+        VdInput.readOnly = false;
+        VdInput.classList.remove("bg-light");
+    } else {
+        VdInput.readOnly = true;
+        VdInput.classList.add("bg-light");
+    }
+}
+
+function populateFormFields(drugName) {
+    const data = drugDb[drugName];
+    if (!data) return;
+
+    document.getElementById("ka").value = data.ka;
+    document.getElementById("ke").value = data.ke;
+    document.getElementById("dose").value = data.dose;
+    document.getElementById("interval").value = data.interval;
+    document.getElementById("toxic").value = data.toxic;
+    document.getElementById("min_eff").value = data.min_eff;
+    document.getElementById("Vd").value = data.Vd;
+
+    applyVdLock(drugName);
+}
+
+if (drugSelect) {
+    drugSelect.addEventListener("change", function() {
+        populateFormFields(this.value);
+    });
+}
+
+function updateDelayFields() {
+    const dosesInput = document.querySelector('[name="doses_per_day"]');
+    if (!dosesInput) return;
+
+    const doses = parseInt(dosesInput.value || "0");
+    const delay2 = document.querySelector('[name="delay2"]');
+    const delay3 = document.querySelector('[name="delay3"]');
+
+    if (delay2) {
+        delay2.disabled = doses < 2;
+    }
+    if (delay3) {
+        delay3.disabled = doses < 3;
+    }
+}
+
+const dosesPerDayInput = document.querySelector('[name="doses_per_day"]');
+if (dosesPerDayInput) {
+    dosesPerDayInput.addEventListener("input", updateDelayFields);
+}
+
+window.onload = function() {
+    const selectedDrug = drugSelect ? drugSelect.value : null;
+    if (drugSelect && selectedDrug) {
+        if (!isPost) {
+            // First load: use database defaults
+            populateFormFields(selectedDrug);
+        } else {
+            // After simulate: keep user-entered values, only lock/unlock Vd
+            applyVdLock(selectedDrug);
+        }
+    }
+    updateDelayFields();
+};
+</script>
+</body>
+</html>
